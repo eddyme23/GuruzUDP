@@ -5,8 +5,10 @@ UDP server installation for Hysteria 1, Http Custom and ZiVPN Tunnel.
 ```
 bash <(curl -sL https://raw.githubusercontent.com/eddyme23/GuruzUDP/master/udp.sh)
 ```
+Check All Service Status
+Run this command to confirm all services are green
 ```
-wget -qO- https://raw.githubusercontent.com/eddyme23/GuruzUDP/refs/heads/main/udp.sh | bash
+systemctl status hysteria-server zivpn udp-custom udpgw
 ```              
 ----
 Bash script by Eddme23 & Guruz GH
