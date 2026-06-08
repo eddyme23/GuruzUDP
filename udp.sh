@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+# Disable strict error checking for reliable installation
+set +e
 
 # Ensure script is run as root
 if [[ $EUID -ne 0 ]]; then
@@ -329,37 +330,37 @@ mkdir -p /etc/UDPCustom
 
 ln -fs /usr/share/zoneinfo/Africa/Accra /etc/localtime
 
-wget -q -O /etc/UDPCustom/module 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/module'
-chmod +x /etc/UDPCustom/module
+wget -q -O /etc/UDPCustom/module 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/module' || echo "Skipping module download..."
+chmod +x /etc/UDPCustom/module 2>/dev/null || true
 
-wget -q -O /root/udp/udp-custom "https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/bin/udp-custom-linux-amd64"
-chmod +x /root/udp/udp-custom
+wget -q -O /root/udp/udp-custom "https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/bin/udp-custom-linux-amd64" || echo "Skipping UDP-Custom binary..."
+chmod +x /root/udp/udp-custom 2>/dev/null || true
 
-wget -q -O /root/udp/config.json "https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/config/config.json"
-sed -i "s/\":36712\"/\":$UDP_CUSTOM_PORT\"/g" /root/udp/config.json
-chmod 644 /root/udp/config.json
+wget -q -O /root/udp/config.json "https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/config/config.json" || echo "Skipping config..."
+sed -i "s/\":36712\"/\":$UDP_CUSTOM_PORT\"/g" /root/udp/config.json 2>/dev/null || true
+chmod 644 /root/udp/config.json 2>/dev/null || true
 
-wget -q -O /etc/UDPCustom/limiter.sh 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/limiter.sh'
-wget -q -O /etc/UDPCustom/cek.sh 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/cek.sh'
-chmod +x /etc/UDPCustom/limiter.sh /etc/UDPCustom/cek.sh
+wget -q -O /etc/UDPCustom/limiter.sh 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/limiter.sh' || true
+wget -q -O /etc/UDPCustom/cek.sh 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/cek.sh' || true
+chmod +x /etc/UDPCustom/limiter.sh /etc/UDPCustom/cek.sh 2>/dev/null || true
 
-wget -q -O /bin/udpgw 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/udpgw'
-chmod +x /bin/udpgw
+wget -q -O /bin/udpgw 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/udpgw' || true
+chmod +x /bin/udpgw 2>/dev/null || true
 
-wget -q -O /usr/bin/udp 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/udp'
-chmod +x /usr/bin/udp
+wget -q -O /usr/bin/udp 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/module/udp' || true
+chmod +x /usr/bin/udp 2>/dev/null || true
 
-wget -q -O /etc/systemd/system/udpgw.service 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/config/udpgw.service'
-wget -q -O /etc/systemd/system/udp-custom.service 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/config/udp-custom.service'
-chmod 640 /etc/systemd/system/udpgw.service /etc/systemd/system/udp-custom.service
+wget -q -O /etc/systemd/system/udpgw.service 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/config/udpgw.service' || true
+wget -q -O /etc/systemd/system/udp-custom.service 'https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/config/udp-custom.service' || true
+chmod 640 /etc/systemd/system/udpgw.service /etc/systemd/system/udp-custom.service 2>/dev/null || true
 
 # ==========================================
 # Install ZiVPN (GitHub Version)
 # ==========================================
 echo "Installing ZiVPN from GitHub..."
 
-wget -q -O /usr/local/bin/zivpn "https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64"
-chmod +x /usr/local/bin/zivpn
+wget -q -O /usr/local/bin/zivpn "https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64" || echo "Skipping ZiVPN binary..."
+chmod +x /usr/local/bin/zivpn 2>/dev/null || true
 
 cat > /etc/zivpn/config.json <<EOF
 {
@@ -373,7 +374,7 @@ cat > /etc/zivpn/config.json <<EOF
   }
 }
 EOF
-chmod 644 /etc/zivpn/config.json
+chmod 644 /etc/zivpn/config.json 2>/dev/null || true
 echo "$PASSWORD $exp_date" > /etc/zivpn/users.txt
 
 cat > /etc/systemd/system/zivpn.service <<EOF
@@ -411,12 +412,13 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-# Start and Enable All Additional Services
+# Start and Enable All Additional Services (Allow errors to output without aborting)
+echo "Starting services..."
 systemctl daemon-reload
-systemctl enable --now udpgw &>/dev/null
-systemctl enable --now udp-custom &>/dev/null
-systemctl enable --now zivpn-nat.service &>/dev/null
-systemctl enable --now zivpn.service &>/dev/null
+systemctl enable --now udpgw || echo "Warning: udpgw failed to start."
+systemctl enable --now udp-custom || echo "Warning: udp-custom failed to start."
+systemctl enable --now zivpn-nat.service || echo "Warning: zivpn-nat failed to start."
+systemctl enable --now zivpn.service || echo "Warning: zivpn failed to start."
 
 # 7. Create the Command Line Menu (vc)
 echo "Installing Custom Menu (vc)..."
@@ -789,7 +791,7 @@ uninstall_services() {
         systemctl disable hysteria-server hysteria-nat udp-custom udpgw zivpn zivpn-nat 2>/dev/null || true
         rm -rf /etc/hysteria /root/udp /etc/UDPCustom /etc/zivpn /usr/local/bin/zivpn
         rm -f /etc/systemd/system/hysteria-*.service /etc/systemd/system/udp*.service /etc/systemd/system/zivpn*.service
-        rm -f /etc/cron.d/hysteria-expiry
+        rm -f /etc/cron.d/hysteria-expiry /etc/cron.d/vpn-expiry
         warp-cli --accept-tos disconnect 2>/dev/null || true
         warp-cli --accept-tos registration delete 2>/dev/null || true
         apt-get remove --purge -y cloudflare-warp 2>/dev/null || true
