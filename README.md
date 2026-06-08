@@ -11,7 +11,7 @@ Run this command to confirm all services are green
 systemctl status hysteria-server zivpn udp-custom udpgw
 ```
 #### Validate NAT Rules
-This ensures your traffic is actually being routed by checking your iptables
+This ensures your traffic is actually being routed by checking your iptables.
 You should see entries for both the 20000:50000 (Hysteria) and 6000:19999 (ZiVPN)
 ```
 iptables -t nat -L PREROUTING -v -n
