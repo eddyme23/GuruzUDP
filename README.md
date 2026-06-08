@@ -3,7 +3,7 @@ UDP server installation for Hysteria 1, Http Custom and ZiVPN Tunnel.
 
 #### Installation
 ```
-wget -O zi.sh https://raw.githubusercontent.com/zahidbd2/udp-zivpn/main/zi.sh; sudo chmod +x zi.sh; sudo ./zi.sh
+bash <(curl -sL https://raw.githubusercontent.com/eddyme23/GuruzUDP/master/udp.sh)
 ```
                 
 ----
