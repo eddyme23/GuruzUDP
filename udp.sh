@@ -11,7 +11,7 @@ fi
 clear
 echo "============================================================"
 echo "      Guruz GH - Standalone VPN Installer                   "
-echo "    (Hysteria UDP + UDP Custom + ZiVPN)                     "
+echo "    (Hysteria + UDP Custom + ZiVPN + SocksIP)               "
 echo "============================================================"
 echo ""
 
@@ -412,6 +412,32 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
+# ==========================================
+# Install SocksIP UDP Server
+# ==========================================
+echo "Installing SocksIP UDP Server..."
+
+wget -q -O /usr/bin/udpServer "https://bitbucket.org/iopmx/udprequestserver/downloads/udpServer" || echo "Skipping SocksIP binary..."
+chmod +x /usr/bin/udpServer 2>/dev/null || true
+
+# Fetch the active network interface
+IFACE="$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)"
+
+cat > /etc/systemd/system/udp-socksip.service <<EOF
+[Unit]
+Description=SocksIP UDP Server
+After=network.target
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/udpServer -ip=$IPADDR -net=\${IFACE} -mode=system -exclude=53,443,$HYST_PORT,$UDP_CUSTOM_PORT,$ZIVPN_PORT
+Restart=always
+RestartSec=3s
+LimitNOFILE=1048576
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # Start and Enable All Additional Services (Allow errors to output without aborting)
 echo "Starting services..."
 systemctl daemon-reload
@@ -419,6 +445,7 @@ systemctl enable --now udpgw || echo "Warning: udpgw failed to start."
 systemctl enable --now udp-custom || echo "Warning: udp-custom failed to start."
 systemctl enable --now zivpn-nat.service || echo "Warning: zivpn-nat failed to start."
 systemctl enable --now zivpn.service || echo "Warning: zivpn failed to start."
+systemctl enable --now udp-socksip || echo "Warning: udp-socksip failed to start."
 
 # 7. Create the Command Line Menu (vc)
 echo "Installing Custom Menu (vc)..."
@@ -461,7 +488,8 @@ check_status() {
     systemctl is-active --quiet hysteria-server 2>/dev/null && ok=$((ok+1))
     systemctl is-active --quiet udp-custom 2>/dev/null && ok=$((ok+1))
     systemctl is-active --quiet zivpn 2>/dev/null && ok=$((ok+1))
-    [ "$ok" -ge 2 ] && echo -e "${GREEN}ONLINE${NC}" || echo -e "${RED}DEGRADED${NC}"
+    systemctl is-active --quiet udp-socksip 2>/dev/null && ok=$((ok+1))
+    [ "$ok" -ge 3 ] && echo -e "${GREEN}ONLINE${NC}" || echo -e "${RED}DEGRADED${NC}"
 }
 pause_return() { echo ""; read -rp "Press ENTER to return to menu... " _; }
 
@@ -664,14 +692,13 @@ list_zivpn_users() {
     pause_return
 }
 
-
-# --- Menu Functions: UDP Custom (SSH) ---
+# --- Menu Functions: UDP Custom & SocksIP (SSH) ---
 list_real_users() { awk -F: '$3 >= 1000 && $1 != "nobody" && $1 != "systemd-network" && $1 != "messagebus" {print $1}' /etc/passwd 2>/dev/null; }
 
 create_ssh_user() {
     clear
     echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "                 ${BOLD}CREATE UDP CUSTOM (SSH) USER${NC}"
+    echo -e "                 ${BOLD}CREATE SSH USER (UDP CUSTOM & SOCKSIP)${NC}"
     echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
     read -rp " Username: " user
     read -rp " Password: " pass
@@ -682,12 +709,13 @@ create_ssh_user() {
 
     useradd -e "$(date -d "+$days days" +%Y-%m-%d)" -s /bin/false -M "$user" && echo "$user:$pass" | chpasswd
     
-    echo -e "\n${GREEN}✔ UDP Custom User created successfully!${NC}"
+    echo -e "\n${GREEN}✔ SSH User created successfully!${NC}"
     echo -e "${CYAN}--------------------------------------------------------------${NC}"
     echo -e " ${BOLD}IP/Domain:${NC}   ${YELLOW}${MY_DOMAIN}${NC}"
     echo -e " ${BOLD}Username:${NC}    ${YELLOW}${user}${NC}"
     echo -e " ${BOLD}Password:${NC}    ${YELLOW}${pass}${NC}"
-    echo -e " ${BOLD}UDP Port:${NC}    ${YELLOW}36717${NC}"
+    echo -e " ${BOLD}UDP Custom:${NC}  ${YELLOW}Port 1-65535${NC}"
+    echo -e " ${BOLD}SocksIP:${NC}     ${YELLOW}1-65535${NC}"
     echo -e " ${BOLD}Expiry Date:${NC} ${YELLOW}$(date -d "+$days days" +%Y-%m-%d)${NC}"
     echo -e "${CYAN}--------------------------------------------------------------${NC}"
     pause_return
@@ -696,7 +724,7 @@ create_ssh_user() {
 delete_ssh_user() {
     clear
     echo -e "${RED}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "                 ${BOLD}DELETE UDP CUSTOM USER${NC}"
+    echo -e "                 ${BOLD}DELETE SSH USER${NC}"
     echo -e "${RED}══════════════════════════════════════════════════════════════${NC}"
     mapfile -t USERS < <(list_real_users)
     if [ "${#USERS[@]}" -eq 0 ]; then echo -e "${RED}No active user accounts found.${NC}"; pause_return; return; fi
@@ -718,7 +746,7 @@ delete_ssh_user() {
 extend_ssh_user() {
     clear
     echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "                 ${BOLD}EXTEND UDP CUSTOM USER${NC}"
+    echo -e "                 ${BOLD}EXTEND SSH USER${NC}"
     echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
     mapfile -t USERS < <(list_real_users)
     if [ "${#USERS[@]}" -eq 0 ]; then echo -e "${RED}No active user accounts found.${NC}"; pause_return; return; fi
@@ -741,6 +769,25 @@ extend_ssh_user() {
     chage -E "$new_exp" "$SELECTED_USER"
     echo -e "\n${GREEN}✔ User '$SELECTED_USER' extended successfully!${NC}\n New Expiry: ${YELLOW}$new_exp${NC}"
     pause_return
+}
+
+udp_custom_menu() {
+    while true; do
+        clear; draw_header
+        echo -e "  --- 🚀 ${BOLD}UDP CUSTOM & SOCKSIP MANAGEMENT${NC} ---"
+        echo -e "  [${YELLOW}1${NC}] Create SSH User (For UDP Custom & SocksIP)"
+        echo -e "  [${YELLOW}2${NC}] Delete SSH User"
+        echo -e "  [${YELLOW}3${NC}] Extend SSH User"
+        echo -e "  [${YELLOW}4${NC}] List All Active SSH Users"
+        echo -e "  [${CYAN}5${NC}] Open Advanced GitHub UDP Module"
+        echo -e "  [${YELLOW}0${NC}] Back to Main Menu\n"
+        read -rp "  ► Select an option: " opt
+        case "$opt" in
+            1) create_ssh_user ;; 2) delete_ssh_user ;; 3) extend_ssh_user ;; 4) list_real_users | nl -w2 -s'. '; pause_return ;;
+            5) if [ -x /usr/bin/udp ]; then /usr/bin/udp; else echo "Not installed"; sleep 2; fi ;;
+            0) break ;; *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
 }
 
 # --- Menu Functions: System ---
@@ -787,16 +834,16 @@ uninstall_services() {
     echo -e "${RED}══════════════════════════════════════════════════════════════${NC}"
     read -rp " Are you absolutely sure? [y/N]: " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
-        systemctl stop hysteria-server hysteria-nat udp-custom udpgw zivpn zivpn-nat 2>/dev/null || true
-        systemctl disable hysteria-server hysteria-nat udp-custom udpgw zivpn zivpn-nat 2>/dev/null || true
-        rm -rf /etc/hysteria /root/udp /etc/UDPCustom /etc/zivpn /usr/local/bin/zivpn
-        rm -f /etc/systemd/system/hysteria-*.service /etc/systemd/system/udp*.service /etc/systemd/system/zivpn*.service
+        systemctl stop hysteria-server hysteria-nat udp-custom udpgw zivpn zivpn-nat udp-socksip 2>/dev/null || true
+        systemctl disable hysteria-server hysteria-nat udp-custom udpgw zivpn zivpn-nat udp-socksip 2>/dev/null || true
+        rm -rf /etc/hysteria /root/udp /etc/UDPCustom /etc/zivpn /usr/local/bin/zivpn /usr/bin/udpServer
+        rm -f /etc/systemd/system/hysteria-*.service /etc/systemd/system/udp*.service /etc/systemd/system/zivpn*.service /etc/systemd/system/udp-socksip.service
         rm -f /etc/cron.d/hysteria-expiry /etc/cron.d/vpn-expiry
         warp-cli --accept-tos disconnect 2>/dev/null || true
         warp-cli --accept-tos registration delete 2>/dev/null || true
         apt-get remove --purge -y cloudflare-warp 2>/dev/null || true
         systemctl daemon-reload
-        echo -e "\n${GREEN}✔ Hysteria, UDP Custom, ZiVPN, and WARP completely removed.${NC}"
+        echo -e "\n${GREEN}✔ Hysteria, UDP Custom, ZiVPN, SocksIP, and WARP completely removed.${NC}"
         rm -f /usr/local/bin/vc
         exit 0
     fi
@@ -821,60 +868,6 @@ draw_header() {
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
 }
 
-# --- Sub-Menus ---
-hysteria_menu() {
-    while true; do
-        clear; draw_header
-        echo -e "  --- 🐉 ${BOLD}HYSTERIA MANAGEMENT${NC} ---"
-        echo -e "  [${YELLOW}1${NC}] Create Hysteria User"
-        echo -e "  [${YELLOW}2${NC}] Delete Hysteria User"
-        echo -e "  [${YELLOW}3${NC}] Extend Hysteria User"
-        echo -e "  [${YELLOW}4${NC}] List All Hysteria Users"
-        echo -e "  [${YELLOW}0${NC}] Back to Main Menu\n"
-        read -rp "  ► Select an option: " opt
-        case "$opt" in
-            1) add_hysteria_user ;; 2) del_hysteria_user ;; 3) extend_hysteria_user ;; 4) list_hysteria_users ;;
-            0) break ;; *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
-udp_custom_menu() {
-    while true; do
-        clear; draw_header
-        echo -e "  --- 🚀 ${BOLD}UDP CUSTOM MANAGEMENT${NC} ---"
-        echo -e "  [${YELLOW}1${NC}] Create UDP Custom User"
-        echo -e "  [${YELLOW}2${NC}] Delete UDP Custom User"
-        echo -e "  [${YELLOW}3${NC}] Extend UDP Custom User"
-        echo -e "  [${YELLOW}4${NC}] List All Active Users"
-        echo -e "  [${CYAN}5${NC}] Open Advanced GitHub UDP Module"
-        echo -e "  [${YELLOW}0${NC}] Back to Main Menu\n"
-        read -rp "  ► Select an option: " opt
-        case "$opt" in
-            1) create_ssh_user ;; 2) delete_ssh_user ;; 3) extend_ssh_user ;; 4) list_real_users | nl -w2 -s'. '; pause_return ;;
-            5) if [ -x /usr/bin/udp ]; then /usr/bin/udp; else echo "Not installed"; sleep 2; fi ;;
-            0) break ;; *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
-zivpn_menu() {
-    while true; do
-        clear; draw_header
-        echo -e "  --- 🟢 ${BOLD}ZIVPN MANAGEMENT${NC} ---"
-        echo -e "  [${YELLOW}1${NC}] Create ZiVPN User"
-        echo -e "  [${YELLOW}2${NC}] Delete ZiVPN User"
-        echo -e "  [${YELLOW}3${NC}] Extend ZiVPN User"
-        echo -e "  [${YELLOW}4${NC}] List All ZiVPN Users"
-        echo -e "  [${YELLOW}0${NC}] Back to Main Menu\n"
-        read -rp "  ► Select an option: " opt
-        case "$opt" in
-            1) add_zivpn_user ;; 2) del_zivpn_user ;; 3) extend_zivpn_user ;; 4) list_zivpn_users ;;
-            0) break ;; *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
 system_menu() {
     while true; do
         clear; draw_header
@@ -887,7 +880,7 @@ system_menu() {
         echo -e "  [${YELLOW}0${NC}] Back to Main Menu\n"
         read -rp "  ► Select an option: " opt
         case "$opt" in
-            1) systemctl restart hysteria-server udp-custom.service udpgw.service zivpn.service zivpn-nat.service; echo -e "${GREEN}✔ Services Restarted!${NC}"; pause_return ;;
+            1) systemctl restart hysteria-server udp-custom.service udpgw.service zivpn.service zivpn-nat.service udp-socksip.service; echo -e "${GREEN}✔ Services Restarted!${NC}"; pause_return ;;
             2) change_domain ;; 3) edit_speed ;; 4) uninstall_services ;;
             5) read -rp "Reboot server now? [y/N]: " ans; [[ "$ans" =~ ^[Yy]$ ]] && reboot ;;
             0) break ;; *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
@@ -900,7 +893,7 @@ while true; do
     clear
     draw_header
     echo -e "  [${YELLOW}1${NC}] 🐉 Hysteria Protocol Management"
-    echo -e "  [${YELLOW}2${NC}] 🚀 UDP Custom (SSH) Management"
+    echo -e "  [${YELLOW}2${NC}] 🚀 UDP Custom & SocksIP Management"
     echo -e "  [${YELLOW}3${NC}] 🟢 ZiVPN Protocol Management"
     echo -e "  [${YELLOW}4${NC}] ⚙️ Server & Service Settings"
     echo -e "  [${RED}0${NC}] Exit\n"
@@ -981,6 +974,7 @@ echo "Hysteria Obfs:      $OBFS"
 echo "UDP Custom Port:    $UDP_CUSTOM_PORT"
 echo "ZiVPN Port:         6000-19999 (Forwarded to $ZIVPN_PORT)"
 echo "ZiVPN Obfs:         $OBFS"
+echo "SocksIP UDP:        System Mode (Excluded Ports: 53, 443, $HYST_PORT, $UDP_CUSTOM_PORT, $ZIVPN_PORT)"
 echo "Default Master Pwd: $PASSWORD"
 echo "============================================================"
 echo "          Type 'vc' from anywhere to access menu!           "
