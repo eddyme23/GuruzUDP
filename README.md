@@ -1,4 +1,4 @@
-UDP server installation for Hysteria 1, Http Custom, SocksIP and ZiVPN Tunnel.
+UDP server installation for Hysteria-1, Http-Custom, SocksIP and ZiVPN Tunnel.
 <br>
 
 #### Installation
